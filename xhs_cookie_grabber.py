@@ -57,6 +57,7 @@ def _bootstrap() -> None:
 
 import argparse
 import json
+import signal as _signal
 import sys
 import time as _time
 from pathlib import Path
@@ -107,8 +108,6 @@ def _check_logged_in(page) -> bool:
     """
     current_url = page.url
     try:
-        path = _os.path.basename(current_url.rstrip("/"))
-        # 不在 /login 页 + 在 feed 页 = 登录成功
         if "/login" in current_url:
             return False
         if any(p in current_url for p in _LOGIN_FEED_PATHS):
@@ -122,6 +121,7 @@ def _check_logged_in(page) -> bool:
 
 def _wait_for_login(
     page,
+    context,
     poll_interval: float = 2.0,
     timeout: float = 300.0,
 ) -> str | None:
@@ -132,6 +132,7 @@ def _wait_for_login(
       2. URL 进入 feed 页面（/explore /channel /profile /feed）
       3. id_token + web_session Cookie 都存在
 
+    检测到登录后，额外等待页面完全加载 + JS 设置完所有 Cookie 再提取。
     返回 Cookie 字符串，超时返回 None
     """
     start = _time.time()
@@ -161,11 +162,63 @@ def _wait_for_login(
         if not notified_scan:
             print("   ✅ 安全验证通过")
             notified_scan = True
-        cookies = page.context.cookies()
+        cookies = context.cookies()
         cookie_map = {c["name"]: c.get("value", "") for c in cookies}
-        if cookie_map.get("web_session") and cookie_map.get("id_token"):
-            return _extract_cookie_string(cookies)
+        if not (cookie_map.get("web_session") and cookie_map.get("id_token")):
+            continue
+
+        # Cookie 已出现，但页面 JS 可能还在异步设置其他 Cookie（gid, webId 等）
+        # 等待页面完全加载 + JS 执行完毕后再提取
+        print("   ⏳ 等待页面加载完成，收集所有 Cookie...")
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            _time.sleep(2)  # 超时也继续，尽量等
+        _time.sleep(1)
+
+        # 重新导航到 /explore 触发完整的 Cookie 设置
+        try:
+            page.goto("https://www.xiaohongshu.com/explore", wait_until="networkidle", timeout=15000)
+        except Exception:
+            _time.sleep(1)
+
+        # 最后等待 1s 确保所有异步 Cookie 写入完毕
+        _time.sleep(1)
+        cookies = context.cookies()
+        cookie_str = _extract_cookie_string(cookies)
+        print(f"   📋 共提取 {len(cookies)} 条 Cookie")
+        return cookie_str
     return None
+
+
+def _cleanup_stale_user_data() -> None:
+    """清理占用 .browser-data 目录的残留 Chrome 进程
+
+    前一次运行如果异常退出（kill -9、系统重启等），
+    Chrome 进程可能仍持有用户数据目录的锁，
+    导致下次 launch_persistent_context 失败。
+    """
+    lock_path = _USER_DATA_DIR / "SingletonLock"
+    if not lock_path.is_symlink():
+        return
+    try:
+        target = _os.readlink(str(lock_path))
+        # 格式: hostname-PID, e.g. TAOdeMac-mini.local-29521
+        pid_str = target.rsplit("-", 1)[-1]
+        pid = int(pid_str)
+        # 检查进程是否存活
+        _os.kill(pid, 0)  # signal 0 = 仅探测
+        # 进程存活 → 杀掉
+        print(f"   🧹 发现残留 Chrome 进程 (PID {pid})，正在清理...")
+        _os.kill(pid, _signal.SIGTERM)
+        try:
+            _os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
+        _time.sleep(1)
+    except (ValueError, OSError, ProcessLookupError):
+        # 进程不存在或无法读取 → 忽略
+        pass
 
 
 def grab_cookie(
@@ -182,6 +235,8 @@ def grab_cookie(
     _ensure_playwright()
     from playwright.sync_api import sync_playwright
 
+    _cleanup_stale_user_data()
+
     cookie_str = ""
 
     with sync_playwright() as p:
@@ -196,31 +251,35 @@ def grab_cookie(
 
         page = context.pages[0] if context.pages else context.new_page()
 
-        # 先检查是否已有登录态
+            # 先检查是否已有登录态
         if not force_login and _check_logged_in(page):
             print("🔑 检测到已有登录态（来自上次会话）")
             cookies = context.cookies()
             cookie_str = _extract_cookie_string(cookies)
+            cookie_dict = {c["name"]: c["value"] for c in cookies}
 
             # 验证关键字段
             missing = [k for k in ["a1", "web_session", "id_token"]
-                       if k not in {c["name"]: c["value"] for c in cookies}]
+                       if k not in cookie_dict]
             if missing:
                 print(f"⚠️  关键 Cookie 缺失 ({', '.join(missing)})，需要重新登录")
                 force_login = True
             else:
                 print("✅ 直接使用现有登录态\n")
-                # 仍打开页面确认登录有效
-                page.goto("https://www.xiaohongshu.com/explore", wait_until="domcontentloaded")
+                page.goto("https://www.xiaohongshu.com/explore", wait_until="networkidle")
                 _time.sleep(1)
-                if not _check_logged_in(page):
+                # 导航后重新提取 Cookie（页面可能更新了某些 Cookie）
+                cookies = context.cookies()
+                cookie_str = _extract_cookie_string(cookies)
+                cookie_dict = {c["name"]: c["value"] for c in cookies}
+                if not (cookie_dict.get("web_session") and cookie_dict.get("id_token")):
                     print("⚠️  登录态已过期，需要重新登录")
                     force_login = True
                 else:
                     print(f"📋 Cookie 长度: {len(cookie_str)} 字符")
-                    print(f"   a1={cookies.get('a1', '')[:20]}...")
-                    print(f"   web_session={cookies.get('web_session', '')[:20]}...")
-                    print(f"   id_token={cookies.get('id_token', '')[:20]}...")
+                    print(f"   a1={cookie_dict.get('a1', '')[:20]}...")
+                    print(f"   web_session={cookie_dict.get('web_session', '')[:20]}...")
+                    print(f"   id_token={cookie_dict.get('id_token', '')[:20]}...")
 
         if force_login or not cookie_str:
             # 导航到小红书首页（会显示登录弹窗 / 二维码）
@@ -235,7 +294,7 @@ def grab_cookie(
             # 等待用户扫码登录
             print(f"⏳ 等待扫码登录（最长 {timeout} 秒）...")
             print(f"   流程：手机扫码 → 确认登录 → 完成安全验证 → 自动跳转")
-            cookie_str = _wait_for_login(page, timeout=float(timeout))
+            cookie_str = _wait_for_login(page, context, timeout=float(timeout))
 
             if cookie_str is None:
                 print(f"\n⏰ 等待超时（{timeout} 秒），未检测到登录完成")
