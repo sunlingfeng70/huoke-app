@@ -131,6 +131,79 @@ def build_note_url(note_id: str, xsec_token: str) -> str:
 # ── API 调用层 ────────────────────────────────────────────────────────
 
 
+def check_cookie_valid(
+    cookie_str: str,
+    proxy: str | None = None,
+) -> dict[str, Any]:
+    """验证 Cookie 是否有效（向搜索 API 发一次试探请求）
+
+    返回:
+        {"valid": True} 或 {"valid": False, "reason": "..."}
+    """
+    from xhshow import Xhshow
+    from curl_cffi import requests as curl_requests
+
+    cookies = cookie_str_to_dict(cookie_str)
+    a1 = cookies.get("a1")
+    if not a1:
+        return {"valid": False, "reason": "缺少 a1 字段，无法生成签名"}
+
+    if not cookies.get("web_session"):
+        return {"valid": False, "reason": "缺少 web_session 字段"}
+
+    if not cookies.get("id_token"):
+        return {"valid": False, "reason": "缺少 id_token 字段"}
+
+    xh = Xhshow()
+    payload = {
+        "keyword": "校验",
+        "page": 1,
+        "page_size": 20,
+        "sort": "general",
+        "note_type": 0,
+        "image_formats": ["jpg", "webp", "avif"],
+        "ext_flags": [],
+        "search_id": f"xhs_verify_{int(time.time())}",
+    }
+    xs = xh.sign_xs("POST", SEARCH_API, a1_value=a1)
+    xsc = xh.sign_xs_common(cookies)
+    xt = str(xh.get_x_t())
+    headers = {
+        "sec-ch-ua-platform": "macOS",
+        "referer": "https://www.xiaohongshu.com/",
+        "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json;charset=UTF-8",
+        "x-s": xs, "x-t": xt, "x-s-common": xsc,
+    }
+    try:
+        resp = curl_requests.post(
+            SEARCH_API, json=payload, headers=headers, cookies=cookies,
+            impersonate="chrome131", timeout=15, proxies=proxy,
+        )
+    except Exception as e:
+        return {"valid": False, "reason": f"网络请求异常: {e}"}
+
+    if resp.status_code != 200:
+        if resp.status_code == 401:
+            return {"valid": False, "reason": "Cookie 已过期（API 返回 401）"}
+        if resp.status_code == 403:
+            return {"valid": False, "reason": "Cookie 被拒绝（API 返回 403），可能触发了风控"}
+        return {"valid": False, "reason": f"API 返回状态码 {resp.status_code}"}
+
+    data = resp.json()
+    if not data.get("success"):
+        msg = data.get("msg", "未知错误")
+        if "登录" in str(msg) or "未登录" in str(msg) or "token" in str(msg).lower():
+            return {"valid": False, "reason": f"Cookie 已失效: {msg}"}
+        return {"valid": False, "reason": f"API 返回失败: {msg}"}
+
+    return {"valid": True, "reason": "Cookie 有效"}
+
+
 def search_notes(
     keyword: str,
     cookie_str: str,

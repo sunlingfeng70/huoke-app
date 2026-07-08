@@ -29,6 +29,7 @@ if str(_HERE) not in sys.path:
 
 from xhs_new_search import (
     build_note_url,
+    check_cookie_valid,
     cookie_str_to_dict,
     fetch_comments,
     print_results,
@@ -227,17 +228,50 @@ if st.session_state.page == "cookie":
             placeholder="a1=xxx; web_session=yyy; id_token=zzz; ...",
             help="从 xhs_cookie_grabber.py 获取的 Cookie 字符串",
         )
-        if st.button("✅ 保存 Cookie", key="save_cookie", type="primary"):
-            cookie_input = cookie_input.strip()
-            if not cookie_input:
-                st.warning("请输入 Cookie 字符串")
-            else:
-                missing = _validate_cookie(cookie_input)
-                if missing:
-                    st.warning(f"⚠️ Cookie 缺少必要字段: {', '.join(missing)}，搜索可能失败")
-                st.session_state.cookie_str = cookie_input
-                st.success(f"✅ Cookie 已保存（{len(cookie_input)} 字符）")
-                st.rerun()
+
+        col_a1, col_a2 = st.columns([1, 1])
+        with col_a1:
+            if st.button("📂 从 cookies.txt 读取", key="load_cookie_file", use_container_width=True):
+                cookie_file = _HERE / "cookies.txt"
+                if cookie_file.exists():
+                    content = cookie_file.read_text(encoding="utf-8").strip()
+                    if content:
+                        st.session_state.cookie_str = content
+                        st.success(f"✅ 已读取 cookies.txt（{len(content)} 字符）")
+                        st.rerun()
+                    else:
+                        st.warning("cookies.txt 为空")
+                else:
+                    st.warning("cookies.txt 不存在，请先运行 xhs_cookie_grabber.py 获取 Cookie")
+        with col_a2:
+            if st.button("✅ 保存 Cookie", key="save_cookie", type="primary", use_container_width=True):
+                cookie_input = cookie_input.strip()
+                if not cookie_input:
+                    st.warning("请输入 Cookie 字符串")
+                else:
+                    missing = _validate_cookie(cookie_input)
+                    if missing:
+                        st.warning(f"⚠️ Cookie 缺少必要字段: {', '.join(missing)}，搜索可能失败")
+                    st.session_state.cookie_str = cookie_input
+                    st.success(f"✅ Cookie 已保存（{len(cookie_input)} 字符）")
+                    st.rerun()
+
+        # 校验 Cookie
+        if st.session_state.cookie_str:
+            validate_status = st.empty()
+            if st.button("🔍 校验 Cookie", key="validate_cookie", use_container_width=True):
+                with st.spinner("正在向小红书 API 发送校验请求..."):
+                    try:
+                        result = check_cookie_valid(
+                            st.session_state.cookie_str,
+                            proxy=st.session_state.proxy or None,
+                        )
+                        if result["valid"]:
+                            validate_status.success(f"✅ Cookie 有效 — {result['reason']}")
+                        else:
+                            validate_status.error(f"❌ {result['reason']}")
+                    except Exception as e:
+                        validate_status.error(f"❌ 校验异常: {e}")
 
     with col_b:
         st.subheader("方式 B: 浏览器获取")
