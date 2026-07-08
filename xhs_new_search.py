@@ -138,17 +138,19 @@ def search_notes(
     sort: str = "general",
     note_type: int = 0,
     max_retries: int = 3,
+    proxy: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """
     通过小红书搜索 API 搜索笔记。
 
     参数:
-        keyword:   搜索关键词
-        cookie_str: Cookie 字符串（需要 a1 / web_session / id_token 等）
-        page_size: 返回笔记数量（默认 10）
-        sort:      排序方式（general / time_descending / popularity_descending）
-        note_type: 笔记类型（0=全部, 1=图文, 2=视频）
+        keyword:     搜索关键词
+        cookie_str:  Cookie 字符串（需要 a1 / web_session / id_token 等）
+        page_size:   返回笔记数量（默认 10）
+        sort:        排序方式（general / time_descending / popularity_descending）
+        note_type:   笔记类型（0=全部, 1=图文, 2=视频）
         max_retries: 重试次数
+        proxy:       HTTP 代理地址（如 http://127.0.0.1:7890），DNS 解析失败时使用
 
     返回:
         标准化笔记列表，失败返回 None
@@ -207,7 +209,7 @@ def search_notes(
             try:
                 resp = curl_requests.post(
                     SEARCH_API, json=payload, headers=headers, cookies=cookies,
-                    impersonate="chrome131", timeout=30,
+                    impersonate="chrome131", timeout=30, proxies=proxy,
                 )
                 last_error = None
                 break
@@ -425,6 +427,7 @@ def fetch_comments(
     xsec_token: str,
     cookie_str: str,
     max_pages: int = 50,
+    proxy: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """获取笔记全部评论（翻页），返回中文格式化后的列表"""
     from xhshow import Xhshow
@@ -456,7 +459,7 @@ def fetch_comments(
             **xh.sign_headers_get(uri=api_path, cookies=cookies, params=params),
         }
         try:
-            resp = curl_requests.get(url, headers=headers, cookies=cookies, params=params, impersonate="chrome131", timeout=15)
+            resp = curl_requests.get(url, headers=headers, cookies=cookies, params=params, impersonate="chrome131", timeout=15, proxies=proxy)
         except Exception as e:
             logger.warning("评论第 %d 页请求异常: %s", page + 1, e)
             break
