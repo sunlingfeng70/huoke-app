@@ -418,6 +418,7 @@ elif st.session_state.page == "search":
                     "类型": note_type_icon,
                     "标题": item["title"][:60],
                     "作者": item["user"]["nickname"],
+                    "用户ID": item["user"]["user_id"],
                     "❤️": stats["liked_count"],
                     "⭐": stats["collected_count"],
                     "💬": stats["comment_count"],
@@ -438,13 +439,14 @@ elif st.session_state.page == "search":
                     "类型": st.column_config.TextColumn("类型", width=50),
                     "标题": st.column_config.TextColumn("标题", width=350),
                     "作者": st.column_config.TextColumn("作者", width=120),
+                    "用户ID": st.column_config.TextColumn("用户ID", width=160),
                     "❤️": st.column_config.NumberColumn("❤️", width=60),
                     "⭐": st.column_config.NumberColumn("⭐", width=60),
                     "💬": st.column_config.NumberColumn("💬", width=60),
                 },
                 hide_index=True,
                 use_container_width=True,
-                disabled=["#", "类型", "标题", "作者", "❤️", "⭐", "💬"],
+                disabled=["#", "类型", "标题", "作者", "用户ID", "❤️", "⭐", "💬"],
                 key="search_results_editor",
             )
 
@@ -640,7 +642,7 @@ elif st.session_state.page == "comments":
 
                 with st.expander(
                     f"#{idx} {title[:50]} — 💬 {count} 条评论",
-                    expanded=count > 0,
+                    expanded=False,
                 ):
                     st.markdown(f"**标题**: {title}")
                     st.markdown(f"**链接**: {item['url']}")
