@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Playwright browser data
+.browser-data/
+.playwright-mcp/
+
+# OpenCode / Claude skills
+.claude/
+.agents/
+
+# IDE and editor configs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Sensitive data
+cookies.txt
+xhs_cookies.txt
+*.cookie*
+
+# Generated files
+2026-07-08_*
+temp/
+tmp/
