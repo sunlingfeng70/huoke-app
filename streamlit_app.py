@@ -48,6 +48,7 @@ st.set_page_config(
 
 _DEFAULT = {
     "cookie_str": "",
+    "proxy": "",
     "keyword": "",
     "search_sort": "general",
     "search_note_type": 0,
@@ -156,6 +157,18 @@ with st.sidebar:
             st.success("✅ Cookie 已就绪")
     else:
         st.info("⏳ 请先在「Cookie」步骤获取 Cookie")
+
+    st.markdown("---")
+    st.markdown("**🌐 网络代理**")
+    proxy_input = st.text_input(
+        "HTTP 代理地址",
+        value=st.session_state.proxy,
+        placeholder="http://127.0.0.1:7890",
+        help="DNS 解析失败（curl: (28) Resolving timed out）时，配置 HTTP 代理可解决网络问题。留空=直连。",
+    )
+    if proxy_input != st.session_state.proxy:
+        st.session_state.proxy = proxy_input
+        st.rerun()
 
     st.markdown("---")
     st.markdown("**工作流**")
@@ -350,6 +363,7 @@ elif st.session_state.page == "search":
                             page_size=number,
                             sort=sort_option,
                             note_type=note_type,
+                            proxy=st.session_state.proxy or None,
                         )
                     except Exception as e:
                         st.error(f"搜索失败: {e}")
@@ -548,7 +562,8 @@ elif st.session_state.page == "comments":
 
                 try:
                     comments = fetch_comments(
-                        note_id, xsec_token, st.session_state.cookie_str
+                        note_id, xsec_token, st.session_state.cookie_str,
+                        proxy=st.session_state.proxy or None,
                     )
                 except Exception as e:
                     st.warning(f"   ❌ #{idx} 获取失败: {e}")
@@ -561,7 +576,6 @@ elif st.session_state.page == "comments":
                 count = len(comments)
                 total_comment_count += count
 
-                # 保存到文件
                 safe_keyword = "".join(
                     c if c.isalnum() or c in " _-" else "_"
                     for c in st.session_state.keyword
