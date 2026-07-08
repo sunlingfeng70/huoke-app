@@ -1,4 +1,4 @@
-# huoke-app — 小红书工具
+# 迈影AI获客 — 小红书工具
 
 3 个 Python 文件，单包结构。Streamlit Web 界面 + CLI 双入口，操作小红书 API 搜索笔记和获取评论。
 

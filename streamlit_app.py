@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-huoke-app Streamlit 界面
+迈影AI获客 — Streamlit 界面
 
 三步工作流：
   1. 获取/粘贴小红书 Cookie
@@ -39,7 +39,7 @@ from xhs_new_search import (
 # ── 页面配置 ─────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="🍠 小红书工具",
+    page_title="🍠 迈影AI获客",
     page_icon="🍠",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -146,7 +146,7 @@ def _launch_cookie_grabber_direct(headless: bool = False, timeout_val: int = 180
 # ── 侧边栏 ───────────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.title("🍠 小红书工具")
+    st.title("🍠 迈影AI获客")
     st.markdown("---")
 
     # Cookie 状态指示
@@ -201,7 +201,7 @@ with st.sidebar:
 
 # ── 页面标题 ─────────────────────────────────────────────────────────
 
-st.title("🍠 小红书笔记搜索 & 评论获取工具")
+st.title("🍠 迈影AI获客 — 小红书笔记搜索 & 评论获取")
 
 # ═══════════════════════════════════════════════════════════════════════
 # 步骤 1: Cookie 获取
@@ -456,6 +456,7 @@ elif st.session_state.page == "search":
                     "❤️": stats["liked_count"],
                     "⭐": stats["collected_count"],
                     "💬": stats["comment_count"],
+                    "链接": item["url"],
                 })
 
             import pandas as pd
@@ -477,10 +478,15 @@ elif st.session_state.page == "search":
                     "❤️": st.column_config.NumberColumn("❤️", width=60),
                     "⭐": st.column_config.NumberColumn("⭐", width=60),
                     "💬": st.column_config.NumberColumn("💬", width=60),
+                    "链接": st.column_config.LinkColumn(
+                        "链接",
+                        width=100,
+                        display_text="🔗 打开",
+                    ),
                 },
                 hide_index=True,
                 use_container_width=True,
-                disabled=["#", "类型", "标题", "作者", "用户ID", "❤️", "⭐", "💬"],
+                disabled=["#", "类型", "标题", "作者", "用户ID", "❤️", "⭐", "💬", "链接"],
                 key="search_results_editor",
             )
 
