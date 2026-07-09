@@ -24,7 +24,8 @@ from typing import Any
 # ── 常量 ──────────────────────────────────────────────────────────────
 
 COMMENT_DIR = "小红书评论"        # 源数据目录
-OUTPUT_DIR = "小红书获客/索引"    # 输出目录
+OUTPUT_DIR = "小红书获客/索引"    # 索引页输出目录
+CONTACT_DIR = "小红书联系人"      # 联系人笔记输出目录
 
 # 评论行正则：### 昵称 — ❤️ 点赞数 — 🕐 时间戳
 COMMENT_RE = re.compile(
@@ -114,6 +115,125 @@ class UserRecord:
             "来源关键词": self.source_keyword,
             "互动": len(self.replies),
         }
+
+
+class Contact:
+    """按昵称聚合后的联系人"""
+
+    def __init__(self, nickname: str):
+        self.nickname = nickname
+        self.records: list[UserRecord] = []
+
+    def add_record(self, r: UserRecord):
+        self.records.append(r)
+
+    @property
+    def keywords(self) -> list[str]:
+        return list(dict.fromkeys(r.source_keyword for r in self.records if r.source_keyword))
+
+    @property
+    def total_comments(self) -> int:
+        return len(self.records)
+
+    @property
+    def total_likes(self) -> int:
+        return sum(r.likes for r in self.records)
+
+    @property
+    def avg_length(self) -> float:
+        return sum(r.comment_length for r in self.records) / max(len(self.records), 1)
+
+    @property
+    def first_date(self) -> str:
+        return min(r.date_str for r in self.records)
+
+    @property
+    def last_date(self) -> str:
+        return max(r.date_str for r in self.records)
+
+    @property
+    def signal_keywords(self) -> list[str]:
+        signals: list[str] = []
+        for r in self.records:
+            if r.has_request:
+                signals.append("有索取行为")
+            if r.is_meaningful:
+                signals.append("有质量评论")
+            if r.likes >= 3:
+                signals.append("高赞")
+        return list(dict.fromkeys(signals))
+
+    @property
+    def score(self) -> int:
+        """加权评分 0-100"""
+        if not self.records:
+            return 0
+
+        avg_len = self.avg_length
+        unique_keywords = len(self.keywords)
+        total_likes = self.total_likes
+        has_reply = any(len(r.replies) > 0 for r in self.records)
+        days_since = (datetime.now() - datetime.strptime(self.last_date, "%Y-%m-%d")).days
+
+        # 1. 评论质量分 (15%)
+        len_score = min(100, avg_len * 2)
+
+        # 2. 互动分 (15%)
+        like_score = min(100, total_likes * 8)
+
+        # 3. 跨关键词分 (25%) — 同一人在多个关键词下出现 → 高意向
+        keyword_score = min(100, unique_keywords * 25)
+
+        # 4. 需求信号分 (20%)
+        signal_score = 0
+        if any(r.is_meaningful for r in self.records):
+            signal_score += 40
+        if any(r.has_request for r in self.records):
+            signal_score += 25
+        if total_likes >= 5:
+            signal_score += 20
+        if has_reply:
+            signal_score += 15
+
+        # 5. 回复互动分 (15%)
+        reply_score = 30 if has_reply else 10
+
+        # 6. 时效分 (10%)
+        recency_score = max(0, 100 - days_since)
+
+        score = (
+            len_score * 0.15
+            + like_score * 0.15
+            + keyword_score * 0.25
+            + signal_score * 0.20
+            + reply_score * 0.15
+            + recency_score * 0.10
+        )
+        return round(min(100, max(0, score)))
+
+    @property
+    def level(self) -> str:
+        s = self.score
+        if s >= 65:
+            return "A"
+        if s >= 45:
+            return "B"
+        if s >= 20:
+            return "C"
+        return "D"
+
+    @property
+    def best_comment(self) -> str:
+        best = max(self.records, key=lambda r: (r.likes, r.comment_length))
+        return best.comment[:120]
+
+    def comment_summary(self) -> list[dict]:
+        return [
+            {"keyword": r.source_keyword, "note": r.source_note,
+             "comment": r.comment[:80], "likes": r.likes, "date": r.date_str,
+             "replies": len(r.replies)}
+            for r in sorted(self.records, key=lambda x: x.timestamp, reverse=True)
+        ]
 
 
 # ── 解析 ──────────────────────────────────────────────────────────────
@@ -461,6 +581,124 @@ def _generate_action_table(users: list[UserRecord]) -> str:
     return "\n".join(lines)
 
 
+# ── 联系人聚合 ────────────────────────────────────────────────────────
+
+
+def _aggregate_contacts(users: list[UserRecord]) -> list[Contact]:
+    """按昵称将 UserRecord 聚合为 Contact"""
+    grouped: dict[str, Contact] = {}
+    for r in users:
+        if r.nickname not in grouped:
+            grouped[r.nickname] = Contact(r.nickname)
+        grouped[r.nickname].add_record(r)
+    return sorted(grouped.values(), key=lambda c: c.score, reverse=True)
+
+
+def _generate_contact_index(contacts: list[Contact]) -> str:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [
+        "---",
+        'title: "📇 联系人总览"',
+        "date: " + datetime.now().strftime("%Y-%m-%d"),
+        "tags: [联系人, 总览, 索引]",
+        "---",
+        "",
+        "# 📇 联系人总览",
+        "",
+        f"**更新日期**: {now}",
+        "",
+        "按加权评分降序排列。评分基于：评论质量、点赞数、跨关键词覆盖、需求信号、回复互动、时效。",
+        "",
+        "---",
+        "",
+        "| # | 昵称 | 评分 | 等级 | 评论数 | 关键词数 | 总点赞 | 最近互动 | 信号 |",
+        "|---|------|------|------|--------|----------|--------|----------|------|",
+    ]
+    for i, c in enumerate(contacts, 1):
+        signals = " ".join(c.signal_keywords[:2]) if c.signal_keywords else "-"
+        lines.append(
+            f"| {i}. | [[{c.nickname}]] | {c.score} | {c.level} |"
+            f" {c.total_comments} | {len(c.keywords)} | {c.total_likes} |"
+            f" {c.last_date} | {signals} |"
+        )
+
+    # 按等级汇总
+    lines += ["", "---", "", "## 等级分布", ""]
+    for lv in ("A", "B", "C", "D"):
+        group = [c for c in contacts if c.level == lv]
+        if group:
+            top = ", ".join(c.nickname for c in group[:5])
+            lines.append(f"- **{lv}类** ({len(group)} 人): {top}{'...' if len(group) > 5 else ''}")
+    return "\n".join(lines)
+
+
+def _generate_contact_note(contact: Contact, vault_root: Path) -> str | None:
+    """为 A/B 类联系人生成独立笔记，返回相对路径"""
+    if not contact.records:
+        return None
+
+    summaries = contact.comment_summary()
+    signals = ", ".join(contact.signal_keywords) if contact.signal_keywords else "无明确信号"
+    keywords = ", ".join(contact.keywords)
+    greeting = (
+        f"您好，看到您在{contact.keywords[0] if contact.keywords else '小红书'}相关笔记下留言，"
+        f"想进一步和您聊聊相关需求～"
+    )
+
+    content = [
+        "---",
+        f'nickname: "{contact.nickname}"',
+        f"score: {contact.score}",
+        f'level: "{contact.level}"',
+        f'status: "待联系"',
+        f'total_comments: {contact.total_comments}',
+        f'total_likes: {contact.total_likes}',
+        f'keywords: [{", ".join(f"\"{k}\"" for k in contact.keywords)}]',
+        f'signals: [{", ".join(f"\"{s}\"" for s in contact.signal_keywords)}]',
+        f'first_interaction: "{contact.first_date}"',
+        f'last_interaction: "{contact.last_date}"',
+        "---",
+        "",
+        f"# 📇 {contact.nickname}",
+        "",
+        "## 概览",
+        "",
+        f"- **意向评分**: {contact.score}/100",
+        f"- **客户等级**: {contact.level}",
+        f"- **跟进状态**: 待联系",
+        f"- **互动次数**: {contact.total_comments} 条评论",
+        f"- **涉及关键词**: {keywords}",
+        f"- **总点赞**: {contact.total_likes}",
+        f"- **首次互动**: {contact.first_date}",
+        f"- **最近互动**: {contact.last_date}",
+        f"- **需求信号**: {signals}",
+        "",
+        "## 建议开场白",
+        "",
+        f"> {greeting}",
+        "",
+        "## 互动记录",
+        "",
+    ]
+    for s in summaries:
+        kw = s["keyword"] or "(无关键词)"
+        content.append(f"### {s['date']} — {kw}")
+        content.append(f"- **来源**: [[{s['note']}]]")
+        content.append(f"- **评论**: {s['comment']}")
+        content.append(f"- **点赞**: {s['likes']}  |  **回复**: {s['replies']} 条")
+        content.append("")
+
+    level_dir = f"{contact.level}-{_LEVEL_NAMES[contact.level]}"
+    rel_path = f"{CONTACT_DIR}/{level_dir}/{contact.nickname}.md"
+    full_path = vault_root / rel_path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    full_path.write_text("\n".join(content), encoding="utf-8")
+    return rel_path
+
+
+_LEVEL_NAMES = {"A": "高意向", "B": "中意向", "C": "低意向", "D": "暂不跟进"}
+
+
 # ── 主流程 ────────────────────────────────────────────────────────────
 
 
@@ -513,6 +751,33 @@ def run_organizer(vault_path: str | Path, verbose: bool = False) -> dict[str, An
         generated.append(str(fp.relative_to(root)))
         if verbose:
             print(f"  ✅ 生成: {fp.relative_to(root)}")
+
+    # 联系人聚合
+    contacts = _aggregate_contacts(users)
+    contact_dir = root / CONTACT_DIR
+
+    # 联系人总览索引
+    index_content = _generate_contact_index(contacts)
+    index_fp = contact_dir / "_索引.md"
+    index_fp.parent.mkdir(parents=True, exist_ok=True)
+    index_fp.write_text(index_content, encoding="utf-8")
+    generated.append(str(index_fp.relative_to(root)))
+    if verbose:
+        print(f"  ✅ 生成: {index_fp.relative_to(root)}")
+
+    # A/B 类联系人独立笔记
+    contact_notes = 0
+    for c in contacts:
+        if c.level in ("A", "B"):
+            rel = _generate_contact_note(c, root)
+            if rel:
+                contact_notes += 1
+                generated.append(rel)
+                if verbose:
+                    print(f"  ✅ 生成: {rel}")
+
+    if verbose:
+        print(f"\n👤 联系人: 共 {len(contacts)} 人 (A+B 笔记 {contact_notes} 篇)")
 
     return {
         "total_users": len(users),
