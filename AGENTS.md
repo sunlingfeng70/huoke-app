@@ -15,6 +15,7 @@ uv run python xhs_new_search.py "热词" "a1=...; web_session=..."  # CLI 搜索
 - `xhs_new_search.py` — 核心库（`search_notes` / `fetch_comments`），也是 CLI
 - `streamlit_app.py` — Streamlit 前端，三步工作流：Cookie → 搜索 → 评论
 - `xhs_cookie_grabber.py` — 独立工具，Playwright 浏览器自动获取 Cookie
+- `obsidian_bridge.py` — Obsidian 仓库交互模块，通过 LLM 调用读写笔记
 
 `xhs_new_search.py` 被 `streamlit_app.py` import 作为后端；`xhs_cookie_grabber.py` 也可被 streamlit 运行时 import 调用。
 
