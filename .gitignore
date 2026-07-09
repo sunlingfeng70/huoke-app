@@ -33,7 +33,11 @@ cookies.txt
 xhs_cookies.txt
 *.cookie*
 
-# Generated files
+# Generated files (scraped data, JSON exports)
 2026-07-08_*
+2026-07-09_*
 temp/
 tmp/
+
+# Personal Obsidian vault
+vault/
