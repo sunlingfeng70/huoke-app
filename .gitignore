@@ -28,6 +28,7 @@ wheels/
 Thumbs.db
 
 # Sensitive data
+.env
 cookies.txt
 xhs_cookies.txt
 *.cookie*
