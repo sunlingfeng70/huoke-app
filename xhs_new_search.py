@@ -491,6 +491,7 @@ def _format_comment(c: dict[str, Any]) -> dict[str, Any]:
         "发布时间": str(c.get("createTime", "")),
         "点赞数量": str(c.get("likedCount", "0")),
         "回复数量": str(c.get("subCommentCount", "0")),
+        "ip_location": c.get("ip_location", ""),
         "子评论": [_format_comment(s) for s in subs_raw if isinstance(s, dict)] if isinstance(subs_raw, list) else [],
     }
 

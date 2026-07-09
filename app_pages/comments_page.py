@@ -149,10 +149,16 @@ def render() -> None:
             else:
                 for c in comments:
                     with st.container(border=True):
+                        meta_parts = [f"❤️ {c.get('点赞数量', '0')}", f"🕐 {c.get('发布时间', '')}"]
+                        uid = c.get("用户ID", "")
+                        if uid:
+                            meta_parts.append(f"ID: {uid}")
+                        ip_loc = c.get("ip_location", "")
+                        if ip_loc:
+                            meta_parts.append(f"📍 {ip_loc}")
                         st.markdown(
                             f"**{c.get('用户昵称', '匿名')}** "
-                            f"— ❤️ {c.get('点赞数量', '0')} "
-                            f"— 🕐 {c.get('发布时间', '')}"
+                            f"— {' — '.join(meta_parts)}"
                         )
                         st.markdown(c.get("评论内容", ""))
 
@@ -160,10 +166,11 @@ def render() -> None:
                         if sub_comments:
                             with st.expander(f"💬 {len(sub_comments)} 条回复", expanded=False):
                                 for s in sub_comments:
-                                    st.markdown(
-                                        f"> **{s.get('用户昵称', '匿名')}**: "
-                                        f"{s.get('评论内容', '')}"
-                                    )
+                                    s_line = f"> **{s.get('用户昵称', '匿名')}**: {s.get('评论内容', '')}"
+                                    s_ip = s.get("ip_location", "")
+                                    if s_ip:
+                                        s_line += f"  📍{s_ip}"
+                                    st.markdown(s_line)
 
     st.markdown("---")
     st.subheader("导出结果")
@@ -252,10 +259,17 @@ def render() -> None:
 
                     for c in comments:
                         nickname = c.get("用户昵称", "匿名")
+                        user_id = c.get("用户ID", "")
                         likes = c.get("点赞数量", "0")
                         time_str = c.get("发布时间", "")
                         content = c.get("评论内容", "")
-                        md_lines.append(f"### {nickname} — ❤️ {likes} — 🕐 {time_str}")
+                        ip_loc = c.get("ip_location", "")
+                        meta_parts = [f"❤️ {likes}", f"🕐 {time_str}"]
+                        if user_id:
+                            meta_parts.append(f"ID: {user_id}")
+                        if ip_loc:
+                            meta_parts.append(f"📍 {ip_loc}")
+                        md_lines.append(f"### {nickname} — {' — '.join(meta_parts)}")
                         md_lines.append("")
                         md_lines.append(content)
                         md_lines.append("")
@@ -265,7 +279,11 @@ def render() -> None:
                             for s in sub_comments:
                                 s_nick = s.get("用户昵称", "匿名")
                                 s_content = s.get("评论内容", "")
-                                md_lines.append(f"> **{s_nick}**: {s_content}")
+                                s_ip = s.get("ip_location", "")
+                                s_line = f"> **{s_nick}**: {s_content}"
+                                if s_ip:
+                                    s_line += f"  📍{s_ip}"
+                                md_lines.append(s_line)
                             md_lines.append("")
 
                         md_lines.append("---")
