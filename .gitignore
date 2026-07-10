@@ -41,3 +41,6 @@ tmp/
 
 # Personal Obsidian vault
 vault/
+
+# Comment export JSON files
+comment/
