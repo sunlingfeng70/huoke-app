@@ -50,7 +50,7 @@ def render() -> None:
             note_type = st.selectbox(
                 "笔记类型",
                 options=[0, 1, 2],
-                format_func=lambda x: {0: "全部", 1: "图文", 2: "视频"}[x],
+                format_func=lambda x: {0: "全部", 1: "视频", 2: "图文"}[x],
                 index=[0, 1, 2].index(st.session_state.search_note_type),
             )
         with col5:

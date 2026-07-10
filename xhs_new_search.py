@@ -89,8 +89,8 @@ SORT_OPTIONS = {
 
 NOTE_TYPE_OPTIONS = {
     "all": 0,
-    "normal": 1,   # 图文
-    "video": 2,    # 视频
+    "video": 1,    # 视频
+    "normal": 2,   # 图文
 }
 
 # ── 评论 API 常量 ───────────────────────────────────────────────────────
@@ -222,7 +222,7 @@ def search_notes(
         cookie_str:  Cookie 字符串（需要 a1 / web_session / id_token 等）
         page_size:   返回笔记数量（默认 10）
         sort:        排序方式（general / time_descending / popularity_descending）
-        note_type:   笔记类型（0=全部, 1=图文, 2=视频）
+        note_type:   笔记类型（0=全部, 1=视频, 2=图文）
         max_retries: 重试次数
         proxy:       HTTP 代理地址（如 http://127.0.0.1:7890），DNS 解析失败时使用
 
@@ -824,7 +824,7 @@ def main():
     )
     parser.add_argument(
         "-t", "--type", type=int, choices=list(NOTE_TYPE_OPTIONS.values()), default=0,
-        help="笔记类型: 0=全部, 1=图文, 2=视频（默认 0）",
+        help="笔记类型: 0=全部, 1=视频, 2=图文（默认 0）",
     )
     parser.add_argument("-o", "--output", help="输出路径（指定时用 JSON 格式）")
     parser.add_argument("-c", "--comments", nargs="?", const="interactive", default=None,
