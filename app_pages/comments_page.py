@@ -7,7 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from xhs_new_search import fetch_comments
+from xhs_new_search import fetch_comments, reply_comment
 
 
 def render() -> None:
@@ -84,8 +84,9 @@ def render() -> None:
                 c if c.isalnum() or c in " _-" else "_"
                 for c in st.session_state.keyword
             )[:20]
+            Path("comment").mkdir(exist_ok=True)
             note_file = (
-                f"{date.today().isoformat()}_{safe_keyword}"
+                f"comment/{date.today().isoformat()}_{safe_keyword}"
                 f"_comments_{idx}.json"
             )
             with open(note_file, "w", encoding="utf-8") as f:
@@ -147,7 +148,16 @@ def render() -> None:
             if count == 0:
                 st.info("暂无评论")
             else:
+                if "_reply_open" not in st.session_state:
+                    st.session_state._reply_open = {}
+                note_id = item["id"]
+
                 for c in comments:
+                    cid = c.get("评论ID", "")
+                    nickname = c.get("用户昵称", "匿名")
+                    content = c.get("评论内容", "")
+                    reply_key = f"r_{note_id}_{cid}"
+
                     with st.container(border=True):
                         meta_parts = [f"❤️ {c.get('点赞数量', '0')}", f"🕐 {c.get('发布时间', '')}"]
                         uid = c.get("用户ID", "")
@@ -156,21 +166,102 @@ def render() -> None:
                         ip_loc = c.get("ip_location", "")
                         if ip_loc:
                             meta_parts.append(f"📍 {ip_loc}")
-                        st.markdown(
-                            f"**{c.get('用户昵称', '匿名')}** "
-                            f"— {' — '.join(meta_parts)}"
-                        )
-                        st.markdown(c.get("评论内容", ""))
+
+                        col1, col2 = st.columns([9, 1])
+                        with col1:
+                            st.markdown(
+                                f"**{nickname}** — {' — '.join(meta_parts)}"
+                            )
+                        with col2:
+                            if st.button("💬", key=f"rbtn_{reply_key}", help="回复此评论"):
+                                st.session_state._reply_open[reply_key] = not st.session_state._reply_open.get(reply_key, False)
+                                st.rerun()
+
+                        st.markdown(content)
+
+                        if st.session_state._reply_open.get(reply_key):
+                            reply_text = st.text_area(
+                                f"回复 @{nickname}",
+                                key=f"rinp_{reply_key}",
+                                label_visibility="collapsed",
+                                placeholder=f"回复 @{nickname}...",
+                            )
+                            rc1, rc2, rc3 = st.columns([1, 1, 6])
+                            with rc1:
+                                if st.button("✅ 发送", key=f"rsnd_{reply_key}", type="primary", use_container_width=True):
+                                    if reply_text.strip():
+                                        result = reply_comment(
+                                            note_id, reply_text.strip(), cid,
+                                            st.session_state.cookie_str,
+                                            st.session_state.proxy or None,
+                                        )
+                                        if result and result.get("success"):
+                                            st.success("✅ 回复成功")
+                                            st.session_state._reply_open[reply_key] = False
+                                            st.rerun()
+                                        else:
+                                            err_msg = (result.get("msg", "未知错误")
+                                                       if result else "网络请求失败")
+                                            st.error(f"❌ 回复失败: {err_msg}")
+                                    else:
+                                        st.warning("请输入回复内容")
+                            with rc2:
+                                if st.button("取消", key=f"rccl_{reply_key}", use_container_width=True):
+                                    st.session_state._reply_open[reply_key] = False
+                                    st.rerun()
 
                         sub_comments = c.get("子评论", [])
                         if sub_comments:
                             with st.expander(f"💬 {len(sub_comments)} 条回复", expanded=False):
                                 for s in sub_comments:
-                                    s_line = f"> **{s.get('用户昵称', '匿名')}**: {s.get('评论内容', '')}"
+                                    s_cid = s.get("评论ID", "")
+                                    s_nick = s.get("用户昵称", "匿名")
+                                    s_content = s.get("评论内容", "")
                                     s_ip = s.get("ip_location", "")
+                                    s_reply_key = f"r_{note_id}_{s_cid}"
+
+                                    s_line = f"> **{s_nick}**: {s_content}"
                                     if s_ip:
                                         s_line += f"  📍{s_ip}"
-                                    st.markdown(s_line)
+
+                                    s_col1, s_col2 = st.columns([9, 1])
+                                    with s_col1:
+                                        st.markdown(s_line)
+                                    with s_col2:
+                                        if st.button("💬", key=f"sbtn_{s_reply_key}", help="回复"):
+                                            st.session_state._reply_open[s_reply_key] = not st.session_state._reply_open.get(s_reply_key, False)
+                                            st.rerun()
+
+                                    if st.session_state._reply_open.get(s_reply_key):
+                                        s_reply_text = st.text_area(
+                                            f"回复 @{s_nick}",
+                                            key=f"sinp_{s_reply_key}",
+                                            label_visibility="collapsed",
+                                            placeholder=f"回复 @{s_nick}...",
+                                        )
+                                        src1, src2, src3 = st.columns([1, 1, 6])
+                                        with src1:
+                                            if st.button("✅ 发送", key=f"ssnd_{s_reply_key}", type="primary", use_container_width=True):
+                                                if s_reply_text.strip():
+                                                    result = reply_comment(
+                                                        note_id, s_reply_text.strip(), s_cid,
+                                                        st.session_state.cookie_str,
+                                                        st.session_state.proxy or None,
+                                                    )
+                                                    if result and result.get("success"):
+                                                        st.success("✅ 回复成功")
+                                                        st.session_state._reply_open[s_reply_key] = False
+                                                        st.rerun()
+                                                    else:
+                                                        err_msg = (result.get("msg", "未知错误")
+                                                                   if result else "网络请求失败")
+                                                        st.error(f"❌ 回复失败: {err_msg}")
+                                                else:
+                                                    st.warning("请输入回复内容")
+                                        with src2:
+                                            if st.button("取消", key=f"sccl_{s_reply_key}", use_container_width=True):
+                                                st.session_state._reply_open[s_reply_key] = False
+                                                st.rerun()
 
     st.markdown("---")
     st.subheader("导出结果")
