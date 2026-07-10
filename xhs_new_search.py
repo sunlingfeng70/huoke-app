@@ -70,7 +70,7 @@ import json
 import logging
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -96,6 +96,7 @@ NOTE_TYPE_OPTIONS = {
 # ── 评论 API 常量 ───────────────────────────────────────────────────────
 
 COMMENT_API = "https://edith.xiaohongshu.com/api/sns/web/v2/comment/page"
+REPLY_API = "https://edith.xiaohongshu.com/api/sns/web/v1/comment/post"
 
 # API → SSR 键名映射
 _COMMENT_KEY_MAP: dict[str, str] = {
@@ -477,6 +478,20 @@ def _normalize_comment(c: dict[str, Any]) -> dict[str, Any]:
     return c
 
 
+def _ts_to_cst(ts: str | int | float) -> str:
+    """将毫秒级时间戳转换为中国标准时间 (UTC+8)，如 '2026-07-10 19:30:00'"""
+    if not ts and ts != 0:
+        return ""
+    try:
+        seconds = int(ts) / 1000
+        if seconds == 0:
+            return ""
+        dt = datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(hours=8)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError, OverflowError):
+        return str(ts)
+
+
 def _format_comment(c: dict[str, Any]) -> dict[str, Any]:
     """将 SSR 格式评论转为中文键名"""
     user = c.get("user", {})
@@ -488,7 +503,7 @@ def _format_comment(c: dict[str, Any]) -> dict[str, Any]:
         "用户昵称": nick,
         "用户ID": uid,
         "评论内容": c.get("content", ""),
-        "发布时间": str(c.get("createTime", "")),
+        "发布时间": _ts_to_cst(c.get("createTime", "")),
         "点赞数量": str(c.get("likedCount", "0")),
         "回复数量": str(c.get("subCommentCount", "0")),
         "ip_location": c.get("ip_location", ""),
@@ -562,6 +577,81 @@ def fetch_comments(
             break
         time.sleep(0.3)
     return all_comments
+
+
+# ── 评论回复层 ────────────────────────────────────────────────────────────
+
+
+def reply_comment(
+    note_id: str,
+    content: str,
+    target_comment_id: str = "",
+    cookie_str: str = "",
+    proxy: str | None = None,
+) -> dict | None:
+    """回复小红书笔记的评论（或回复子评论）。
+
+    参数:
+        note_id:             笔记 ID
+        content:             回复内容
+        target_comment_id:   目标评论 ID（回复子评论时也填其 comment_id）
+        cookie_str:          Cookie 字符串
+        proxy:               HTTP 代理地址
+
+    返回:
+        API 响应 dict（含 success/msg 等字段），网络或签名异常返回 None
+    """
+    from xhshow import Xhshow
+    from curl_cffi import requests as curl_requests
+
+    cookies = cookie_str_to_dict(cookie_str)
+    a1 = cookies.get("a1")
+    if not a1:
+        logger.error("reply_comment: Cookie 缺少 a1 字段")
+        return None
+
+    xh = Xhshow()
+    uri_path = "/api/sns/web/v1/comment/post"
+    url = f"https://edith.xiaohongshu.com{uri_path}"
+
+    payload: dict[str, Any] = {
+        "note_id": note_id,
+        "content": content,
+        "at_users": [],
+    }
+    if target_comment_id:
+        payload["target_comment_id"] = target_comment_id
+
+    # sign_headers_post 返回 x-s / x-t / x-s-common / x-b3-traceid / x-xray-traceid
+    signed = xh.sign_headers_post(uri=uri_path, cookies=cookies, payload=payload)
+    headers = {
+        "referer": "https://www.xiaohongshu.com/",
+        "content-type": "application/json;charset=UTF-8",
+        "user-agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/149.0.0.0 Safari/537.36"
+        ),
+        **signed,
+    }
+
+    try:
+        resp = curl_requests.post(
+            url, json=payload, headers=headers, cookies=cookies,
+            impersonate="chrome131", timeout=15, proxies=proxy,
+        )
+    except Exception as e:
+        logger.error("reply_comment: 请求异常: %s", e)
+        return None
+
+    if resp.status_code != 200:
+        logger.warning("reply_comment: API 返回 %d", resp.status_code)
+        return None
+
+    try:
+        return resp.json()
+    except Exception:
+        return None
 
 
 # ── 笔记选择层 ──────────────────────────────────────────────────────────
@@ -685,7 +775,8 @@ def run_comment_pipeline(
         total_comments += count
         print(f"   ✅ 共 {count} 条评论")
 
-        note_file = f"{date.today().isoformat()}_{keyword}_comments_{note_index}.json"
+        _os.makedirs("comment", exist_ok=True)
+        note_file = f"comment/{date.today().isoformat()}_{keyword}_comments_{note_index}.json"
         with open(note_file, "w", encoding="utf-8") as f:
             json.dump({
                 "keyword": keyword,
